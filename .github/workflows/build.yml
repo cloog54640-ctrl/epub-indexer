@@ -1,0 +1,19 @@
+name: Build Exe
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+      - name: Build Windows Exe
+        run: GOOS=windows GOARCH=amd64 go build -o epub_indexer.exe main.go
+      - name: Upload Exe
+        uses: actions/upload-artifact@v3
+        with:
+          name: epub_indexer
+          path: epub_indexer.exe
