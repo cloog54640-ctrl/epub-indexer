@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,16 +36,27 @@ func main() {
 		rootDir = os.Args[1]
 	}
 
+	absPath, err := filepath.Abs(rootDir)
+	if err == nil {
+		rootDir = absPath
+	}
+
+	// Gestion des chemins longs sous Windows (> 260 caractères)
+	longRootDir := rootDir
+	if !strings.HasPrefix(longRootDir, `\\?\`) && len(longRootDir) > 3 {
+		longRootDir = `\\?\` + longRootDir
+	}
+
 	os.MkdirAll("covers", os.ModePerm)
 
 	var books []Metadata
 	var mu sync.Mutex
 	var processed uint64
 
-	filesChan := make(chan string, 1000)
+	filesChan := make(chan string, 2000)
 	var wg sync.WaitGroup
 
-	// Lancer 12 threads de traitement en parallèle
+	// 12 threads en parallèle
 	for i := 0; i < 12; i++ {
 		wg.Add(1)
 		go func() {
@@ -64,9 +76,12 @@ func main() {
 		}()
 	}
 
-	// Parcours des dossiers
-	filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".epub") {
+	// WalkDir pour mieux gérer les sous-dossiers très profonds
+	filepath.WalkDir(longRootDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // Ne pas s'arrêter en cas d'erreur sur un dossier spécifique
+		}
+		if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".epub") {
 			filesChan <- path
 		}
 		return nil
@@ -74,17 +89,16 @@ func main() {
 	close(filesChan)
 
 	wg.Wait()
-	fmt.Printf("\nScan terminé ! %d EPUBs indexés.\n", len(books))
+	fmt.Printf("\nScan terminé ! %d EPUBs indexés au total.\n", len(books))
 
-	// Sauvegarde de l'index JSON
 	jsonData, _ := json.MarshalIndent(books, "", "  ")
 	os.WriteFile("catalog.json", jsonData, 0644)
-	fmt.Println("Index généré avec succès dans 'catalog.json'.")
+	fmt.Println("Index mis à jour avec succès dans 'catalog.json'.")
 }
 
 func processEpub(epubPath string) (Metadata, error) {
 	var meta Metadata
-	meta.FilePath = epubPath
+	meta.FilePath = strings.TrimPrefix(epubPath, `\\?\`)
 
 	r, err := zip.OpenReader(epubPath)
 	if err != nil {
@@ -108,7 +122,6 @@ func processEpub(epubPath string) (Metadata, error) {
 			meta.Subjects = opf.Metadata.Subject
 		}
 
-		// Extraction de la première image trouvée comme couverture
 		if meta.CoverPath == "" && (strings.HasSuffix(f.Name, ".jpg") || strings.HasSuffix(f.Name, ".png")) {
 			coverFilename := fmt.Sprintf("covers/%x_%s", strings.ToLower(filepath.Base(epubPath)), filepath.Base(f.Name))
 			out, err := os.Create(coverFilename)
