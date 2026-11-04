@@ -120,7 +120,7 @@ func processEpub(epubPath string) (Metadata, error) {
 			meta.Subjects = opf.Metadata.Subject
 		}
 
-		if meta.CoverPath == "" && (strings.Suffixes(f.Name, ".jpg") || strings.HasSuffix(f.Name, ".png")) {
+		if meta.CoverPath == "" && (strings.HasSuffix(f.Name, ".jpg") || strings.HasSuffix(f.Name, ".png")) {
 			coverFilename := fmt.Sprintf("covers/cov_%x_%s", strings.ToLower(filepath.Base(epubPath)), filepath.Base(f.Name))
 			out, err := os.Create(coverFilename)
 			if err == nil {
